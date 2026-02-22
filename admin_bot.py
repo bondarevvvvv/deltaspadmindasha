@@ -1,0 +1,534 @@
+import telebot
+from telebot import types
+import json
+import os
+from datetime import datetime
+
+# ========== НАСТРОЙКИ ==========
+ADMIN_BOT_TOKEN = '8212103646:AAHbIr_A-OAfkMBCTwMcxdfHErC21JhOzeM'  # ← Вставьте токен админ-бота
+MAIN_BOT_TOKEN = '8510845153:AAGUO5jg01h2NlL46VsD1f-7osYIBVTkxTQ'  # ← Токен основного бота
+
+admin_bot = telebot.TeleBot(ADMIN_BOT_TOKEN)
+main_bot = telebot.TeleBot(MAIN_BOT_TOKEN)
+
+# Файлы данных
+DATA_FILE = 'users_data.json'
+ACTIONS_FILE = 'user_actions.json'
+
+# ========== ФУНКЦИИ ДЛЯ РАБОТЫ С ДАННЫМИ ==========
+
+def load_data():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+def load_actions():
+    if os.path.exists(ACTIONS_FILE):
+        with open(ACTIONS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return []
+
+# ========== КОМАНДЫ АДМИН-БОТА ==========
+
+@admin_bot.message_handler(commands=['start'])
+def admin_start(message):
+    text = """
+🎛 Админ-панель ДельтаСтройПроект
+
+Доступные команды:
+
+📊 Информация:
+/users - список всех пользователей
+/stats - статистика бота
+/actions - последние 10 действий
+/user USER_ID - полная информация о пользователе
+/find имя - поиск пользователя
+
+💬 Управление:
+/send USER_ID текст - отправить сообщение пользователю
+/broadcast текст - отправить всем пользователям
+
+❓ Помощь:
+/help - подробная помощь
+"""
+    admin_bot.send_message(message.chat.id, text)
+
+@admin_bot.message_handler(commands=['help'])
+def admin_help(message):
+    text = """
+📖 Подробная помощь
+
+════════════════════════════════════
+📋 ПРОСМОТР ИНФОРМАЦИИ:
+
+/users - список всех пользователей
+Показывает всех пользователей с контактами
+
+/user USER_ID - детали о пользователе
+Показывает полную информацию и историю действий
+Пример: /user 123456789
+
+/find Иван - поиск пользователя
+Ищет по имени или username
+Пример: /find Петров
+
+/stats - общая статистика
+Количество пользователей, действий и т.д.
+
+/actions - последние действия
+Показывает последние 10 действий всех пользователей
+
+════════════════════════════════════
+💬 ОТПРАВКА СООБЩЕНИЙ:
+
+/send USER_ID текст - отправить одному
+Пример: /send 123456789 Здравствуйте! Ваша заявка принята
+
+/broadcast текст - рассылка всем
+Пример: /broadcast Уважаемые клиенты! Завтра выходной
+
+════════════════════════════════════
+💡 СОВЕТЫ:
+
+1. Используйте /users чтобы узнать ID пользователя
+2. Кликайте на /user команды в списке пользователей
+3. Используйте /find для быстрого поиска
+4. Перед рассылкой проверьте текст - придёт подтверждение
+"""
+    admin_bot.send_message(message.chat.id, text)
+
+# ===== ПРОСМОТР ПОЛЬЗОВАТЕЛЕЙ =====
+
+@admin_bot.message_handler(commands=['users'])
+def show_users(message):
+    data = load_data()
+    
+    if not data:
+        admin_bot.send_message(message.chat.id, "📭 База пользователей пуста")
+        return
+    
+    text = f"👥 Всего пользователей: {len(data)}\n\n"
+    text += "Для просмотра деталей нажмите на команду\n"
+    text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    
+    for user_id, user_data in data.items():
+        name = user_data.get('name', '❓')
+        username = user_data.get('username', 'нет')
+        phone = user_data.get('phone', 'не указан')
+        
+        text += f"👤 {name}\n"
+        text += f"🆔 ID: {user_id}\n"
+        text += f"📱 @{username} | ☎️ {phone}\n"
+        text += f"📊 Детали: /user {user_id}\n"
+        text += "━━━━━━━━━━━━━━━━\n\n"
+    
+    # Разбиваем на части если слишком длинное
+    if len(text) > 4000:
+        parts = [text[i:i+4000] for i in range(0, len(text), 4000)]
+        for part in parts:
+            admin_bot.send_message(message.chat.id, part)
+    else:
+        admin_bot.send_message(message.chat.id, text)
+
+# ===== СТАТИСТИКА =====
+
+@admin_bot.message_handler(commands=['stats'])
+def show_stats(message):
+    data = load_data()
+    actions = load_actions()
+    
+    total_users = len(data)
+    users_with_phone = sum(1 for u in data.values() if u.get('phone'))
+    users_with_email = sum(1 for u in data.values() if u.get('email'))
+    total_actions = len(actions)
+    
+    today = datetime.now().strftime('%Y-%m-%d')
+    today_actions = sum(1 for a in actions if a.get('timestamp', '').startswith(today))
+    
+    action_types = {}
+    for action in actions:
+        action_type = action.get('action_type', 'unknown')
+        action_types[action_type] = action_types.get(action_type, 0) + 1
+    
+    text = f"""
+📊 Статистика бота
+
+👥 Пользователи:
+• Всего: {total_users}
+• С телефоном: {users_with_phone}
+• С email: {users_with_email}
+
+📝 Действия:
+• Всего: {total_actions}
+• Сегодня: {today_actions}
+
+📈 По типам:
+"""
+    
+    type_names = {
+        'command': '⌨️ Команды',
+        'button_click': '🔘 Нажатия кнопок',
+        'inline_button_click': '🔵 Inline-кнопки',
+        'phone_provided': '📱 Телефоны',
+        'email_provided': '📧 Email',
+        'question_asked': '❓ Вопросы',
+        'feedback_provided': '💬 Обратная связь',
+        'phone_for_feedback': '📱 Телефон (обратная связь)',
+        'email_for_feedback': '📧 Email (обратная связь)'
+    }
+    
+    for action_type, count in action_types.items():
+        type_name = type_names.get(action_type, action_type)
+        text += f"• {type_name}: {count}\n"
+    
+    admin_bot.send_message(message.chat.id, text)
+
+# ===== ПОСЛЕДНИЕ ДЕЙСТВИЯ =====
+
+@admin_bot.message_handler(commands=['actions'])
+def show_actions(message):
+    actions = load_actions()
+    
+    if not actions:
+        admin_bot.send_message(message.chat.id, "📭 Нет записанных действий")
+        return
+    
+    recent = actions[-10:]
+    recent.reverse()
+    
+    text = "📝 Последние 10 действий:\n\n"
+    
+    for action in recent:
+        timestamp = action.get('timestamp', '?')
+        name = action.get('first_name', '?')
+        user_id = action.get('user_id', '?')
+        action_type = action.get('action_type', '?')
+        details = action.get('action_details', '?')
+        
+        if len(str(details)) > 50:
+            details = str(details)[:50] + "..."
+        
+        text += f"⏰ {timestamp}\n"
+        text += f"👤 {name} (ID: {user_id})\n"
+        text += f"📌 {action_type}: {details}\n"
+        text += "━━━━━━━━━━━━━━━━\n"
+    
+    admin_bot.send_message(message.chat.id, text)
+
+# ===== ПРОСМОТР КОНКРЕТНОГО ПОЛЬЗОВАТЕЛЯ =====
+
+@admin_bot.message_handler(commands=['user'])
+def show_user_info(message):
+    try:
+        # Парсим: /user USER_ID
+        parts = message.text.split()
+        
+        if len(parts) < 2:
+            admin_bot.send_message(message.chat.id,
+                "❌ Неверный формат!\n\n"
+                "Используйте:\n"
+                "/user USER_ID\n\n"
+                "Пример:\n"
+                "/user 123456789\n\n"
+                "Чтобы узнать ID используйте /users")
+            return
+        
+        user_id = parts[1]
+        
+        # Загружаем данные
+        data = load_data()
+        actions = load_actions()
+        
+        # Проверяем существует ли пользователь
+        if user_id not in data:
+            admin_bot.send_message(message.chat.id, 
+                f"❌ Пользователь {user_id} не найден в базе\n\n"
+                f"Используйте /users для просмотра всех пользователей")
+            return
+        
+        user_data = data[user_id]
+        
+        # Собираем информацию о пользователе
+        name = user_data.get('name', '❓')
+        username = user_data.get('username', 'не указан')
+        phone = user_data.get('phone', 'не указан')
+        email = user_data.get('email', 'не указан')
+        question = user_data.get('question', 'не задавал')
+        feedback = user_data.get('feedback', 'не оставлял')
+        
+        # Обрезаем длинные тексты
+        if len(str(question)) > 100:
+            question = str(question)[:100] + '...'
+        if len(str(feedback)) > 100:
+            feedback = str(feedback)[:100] + '...'
+        
+        # Фильтруем действия этого пользователя
+        user_actions = [a for a in actions if a.get('user_id') == user_id]
+        
+        # Формируем сообщение
+        text = f"""
+👤 ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 Основные данные:
+• Имя: {name}
+• Username: @{username}
+• ID: {user_id}
+
+📞 Контакты:
+• Телефон: {phone}
+• Email: {email}
+
+💬 Обращения:
+• Вопрос: {question}
+• Обратная связь: {feedback}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 Статистика активности:
+• Всего действий: {len(user_actions)}
+
+"""
+        
+        # Отправляем основную информацию
+        admin_bot.send_message(message.chat.id, text)
+        
+        # Если есть действия - показываем их
+        if user_actions:
+            # Сортируем по времени (от старых к новым)
+            user_actions.sort(key=lambda x: x.get('timestamp', ''))
+            
+            history_text = f"📜 ИСТОРИЯ ДЕЙСТВИЙ ({name}):\n\n"
+            
+            # Иконки для типов действий
+            type_icons = {
+                'command': '⌨️',
+                'button_click': '🔘',
+                'inline_button_click': '🔵',
+                'phone_provided': '📱',
+                'email_provided': '📧',
+                'question_asked': '❓',
+                'feedback_provided': '💬',
+                'phone_for_feedback': '📱',
+                'email_for_feedback': '📧'
+            }
+            
+            for i, action in enumerate(user_actions, 1):
+                timestamp = action.get('timestamp', '?')
+                action_type = action.get('action_type', '?')
+                details = action.get('action_details', '?')
+                
+                # Обрезаем длинные детали
+                if len(str(details)) > 50:
+                    details = str(details)[:50] + "..."
+                
+                icon = type_icons.get(action_type, '📌')
+                
+                history_text += f"{i}. {icon} {timestamp}\n"
+                history_text += f"   Тип: {action_type}\n"
+                history_text += f"   Детали: {details}\n"
+                history_text += "   ━━━━━━━━━━━━━━━━\n"
+            
+            # Разбиваем на части если слишком длинное
+            if len(history_text) > 4000:
+                parts = [history_text[i:i+4000] for i in range(0, len(history_text), 4000)]
+                for part in parts:
+                    admin_bot.send_message(message.chat.id, part)
+            else:
+                admin_bot.send_message(message.chat.id, history_text)
+        else:
+            admin_bot.send_message(message.chat.id, "📭 У этого пользователя пока нет записанных действий")
+            
+    except Exception as e:
+        admin_bot.send_message(message.chat.id, f"❌ Ошибка: {str(e)}")
+
+# ===== ПОИСК ПОЛЬЗОВАТЕЛЯ =====
+
+@admin_bot.message_handler(commands=['find'])
+def find_user(message):
+    try:
+        # Парсим: /find имя
+        parts = message.text.split(' ', 1)
+        
+        if len(parts) < 2:
+            admin_bot.send_message(message.chat.id,
+                "❌ Неверный формат!\n\n"
+                "Используйте:\n"
+                "/find имя_или_username\n\n"
+                "Примеры:\n"
+                "/find Иван\n"
+                "/find Петров\n"
+                "/find ivan123")
+            return
+        
+        search_query = parts[1].lower()
+        data = load_data()
+        
+        # Ищем совпадения
+        found = []
+        for user_id, user_data in data.items():
+            name = user_data.get('name', '').lower()
+            username = user_data.get('username', '').lower()
+            
+            if search_query in name or search_query in username:
+                found.append((user_id, user_data))
+        
+        if not found:
+            admin_bot.send_message(message.chat.id, 
+                f"🔍 Пользователи с '{parts[1]}' не найдены\n\n"
+                f"Попробуйте:\n"
+                f"• Другое написание\n"
+                f"• Часть имени\n"
+                f"• Username без @")
+            return
+        
+        text = f"🔍 Найдено пользователей: {len(found)}\n"
+        text += f"Поиск по: '{parts[1]}'\n\n"
+        text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        
+        for user_id, user_data in found:
+            name = user_data.get('name', '❓')
+            username = user_data.get('username', 'нет')
+            phone = user_data.get('phone', 'не указан')
+            
+            text += f"👤 {name}\n"
+            text += f"🆔 ID: {user_id}\n"
+            text += f"📱 @{username} | ☎️ {phone}\n"
+            text += f"📊 Детали: /user {user_id}\n"
+            text += "━━━━━━━━━━━━━━━━\n\n"
+        
+        admin_bot.send_message(message.chat.id, text)
+        
+    except Exception as e:
+        admin_bot.send_message(message.chat.id, f"❌ Ошибка: {str(e)}")
+
+# ===== ОТПРАВКА СООБЩЕНИЯ ПОЛЬЗОВАТЕЛЮ =====
+
+@admin_bot.message_handler(commands=['send'])
+def send_to_user(message):
+    try:
+        # Парсим: /send USER_ID текст сообщения
+        parts = message.text.split(' ', 2)
+        
+        if len(parts) < 3:
+            admin_bot.send_message(message.chat.id, 
+                "❌ Неверный формат!\n\n"
+                "Используйте:\n"
+                "/send USER_ID текст сообщения\n\n"
+                "Пример:\n"
+                "/send 123456789 Здравствуйте! Ваша заявка принята в работу")
+            return
+        
+        user_id = parts[1]
+        text = parts[2]
+        
+        # Отправляем через основного бота
+        main_bot.send_message(user_id, text)
+        
+        admin_bot.send_message(message.chat.id, 
+            f"✅ Сообщение отправлено пользователю {user_id}\n\n"
+            f"Текст:\n{text}")
+        
+    except Exception as e:
+        admin_bot.send_message(message.chat.id, 
+            f"❌ Ошибка отправки: {str(e)}\n\n"
+            f"Возможные причины:\n"
+            f"• Неверный USER_ID\n"
+            f"• Пользователь заблокировал бота\n"
+            f"• Пользователь не запускал бота")
+
+# ===== РАССЫЛКА ВСЕМ =====
+
+@admin_bot.message_handler(commands=['broadcast'])
+def broadcast_message(message):
+    try:
+        # Парсим: /broadcast текст сообщения
+        parts = message.text.split(' ', 1)
+        
+        if len(parts) < 2:
+            admin_bot.send_message(message.chat.id,
+                "❌ Неверный формат!\n\n"
+                "Используйте:\n"
+                "/broadcast текст сообщения\n\n"
+                "Пример:\n"
+                "/broadcast Уважаемые клиенты! Завтра 23 февраля работаем до 18:00")
+            return
+        
+        text = parts[1]
+        data = load_data()
+        
+        if not data:
+            admin_bot.send_message(message.chat.id, "📭 Нет пользователей для рассылки")
+            return
+        
+        # Подтверждение
+        confirm_text = f"📢 РАССЫЛКА\n\n"
+        confirm_text += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        confirm_text += f"Текст сообщения:\n{text}\n\n"
+        confirm_text += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        confirm_text += f"Получателей: {len(data)}\n\n"
+        confirm_text += f"⚠️ ВНИМАНИЕ!\n"
+        confirm_text += f"Сообщение будет отправлено ВСЕМ пользователям!\n\n"
+        confirm_text += f"Для подтверждения напишите: да\n"
+        confirm_text += f"Для отмены напишите: нет"
+        
+        admin_bot.send_message(message.chat.id, confirm_text)
+        
+        # Сохраняем данные для подтверждения
+        admin_bot.register_next_step_handler(message, 
+            lambda m: confirm_broadcast(m, text, data))
+        
+    except Exception as e:
+        admin_bot.send_message(message.chat.id, f"❌ Ошибка: {str(e)}")
+
+def confirm_broadcast(message, text, data):
+    if message.text.lower() not in ['да', 'yes', 'y']:
+        admin_bot.send_message(message.chat.id, "❌ Рассылка отменена")
+        return
+    
+    admin_bot.send_message(message.chat.id, "📤 Начинаю рассылку...\nЭто может занять некоторое время.")
+    
+    success = 0
+    failed = 0
+    failed_users = []
+    
+    for user_id in data.keys():
+        try:
+            main_bot.send_message(user_id, text)
+            success += 1
+        except Exception as e:
+            failed += 1
+            failed_users.append(user_id)
+            print(f"Ошибка отправки {user_id}: {e}")
+    
+    result = f"✅ Рассылка завершена!\n\n"
+    result += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    result += f"📊 Результаты:\n"
+    result += f"• Успешно: {success}\n"
+    result += f"• Ошибок: {failed}\n\n"
+    
+    if failed > 0:
+        result += f"⚠️ Не удалось отправить пользователям:\n"
+        for uid in failed_users[:5]:  # Показываем первые 5
+            result += f"• {uid}\n"
+        if len(failed_users) > 5:
+            result += f"• ... и ещё {len(failed_users) - 5}\n"
+    
+    admin_bot.send_message(message.chat.id, result)
+
+# ===== ЗАПУСК АДМИН-БОТА =====
+
+if __name__ == '__main__':
+    print("🎛 Админ-бот запущен...")
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("Доступные команды:")
+    print("  /start - главное меню")
+    print("  /users - список пользователей")
+    print("  /user ID - информация о пользователе")
+    print("  /find имя - поиск пользователя")
+    print("  /stats - статистика")
+    print("  /actions - последние действия")
+    print("  /send ID текст - отправить сообщение")
+    print("  /broadcast текст - рассылка")
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    admin_bot.infinity_polling()
