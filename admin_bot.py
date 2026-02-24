@@ -1,36 +1,227 @@
-import telebot
-from telebot import types
-import json
+import sqlite3
 import os
 from datetime import datetime
+import json
+import telebot
+from telebot import types
 
-# ========== НАСТРОЙКИ ==========
-ADMIN_BOT_TOKEN = '8212103646:AAHbIr_A-OAfkMBCTwMcxdfHErC21JhOzeM'  # ← Вставьте токен админ-бота
-MAIN_BOT_TOKEN = '8510845153:AAGUO5jg01h2NlL46VsD1f-7osYIBVTkxTQ'  # ← Токен основного бота
+# ========= Настройки ==========
+ADMIN_BOT_TOKEN = '8212103646:AAHbIr_A-OAfkMBCTwMcxdfHErC21JhOzeM'  # токен админ-бота
+MAIN_BOT_TOKEN  = '8510845153:AAGUO5jg01h2NlL46VsD1f-7osYIBVTkxTQ'  # токен основного бота
 
 admin_bot = telebot.TeleBot(ADMIN_BOT_TOKEN)
-main_bot = telebot.TeleBot(MAIN_BOT_TOKEN)
+main_bot  = telebot.TeleBot(MAIN_BOT_TOKEN)
 
-# Файлы данных
+# БД
+DB_FILE = 'bot_data.db'
+
+# ========== ФУНКЦИИ ИНИЦИАЛИЗАЦИИ БД ==========
+def init_db():
+    first_run = not os.path.exists(DB_FILE)
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    if first_run:
+        c.execute('''
+            CREATE TABLE users (
+                id TEXT PRIMARY KEY,
+                name TEXT,
+                username TEXT,
+                phone TEXT,
+                email TEXT,
+                question TEXT,
+                feedback TEXT
+            )
+        ''')
+        c.execute('''
+            CREATE TABLE actions (
+                timestamp TEXT,
+                user_id TEXT,
+                username TEXT,
+                first_name TEXT,
+                action_type TEXT,
+                action_details TEXT
+            )
+        ''')
+        conn.commit()
+    conn.close()
+
+# ========== ДАННЫЕ (через БД) ==========
+def load_data():
+    """Возвращает словарь {user_id: {field: value, ...}}"""
+    data = {}
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT id, name, username, phone, email, question, feedback FROM users')
+    rows = c.fetchall()
+    for row in rows:
+        uid, name, username, phone, email, question, feedback = row
+        data[uid] = {
+            'name': name,
+            'username': username,
+            'phone': phone,
+            'email': email,
+            'question': question,
+            'feedback': feedback
+        }
+    conn.close()
+    return data
+
+def save_data(data):
+    """data — словарь {user_id: {field: value, ...}}. Обновляет/вставляет записи."""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    for user_id, fields in data.items():
+        c.execute('''
+            INSERT INTO users (id, name, username, phone, email, question, feedback)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name=excluded.name,
+                username=excluded.username,
+                phone=excluded.phone,
+                email=excluded.email,
+                question=excluded.question,
+                feedback=excluded.feedback
+        ''', (
+            user_id,
+            fields.get('name'),
+            fields.get('username'),
+            fields.get('phone'),
+            fields.get('email'),
+            fields.get('question'),
+            fields.get('feedback')
+        ))
+    conn.commit()
+    conn.close()
+
+def load_actions():
+    """Возвращает список действий: [{timestamp, user_id, username, first_name, action_type, action_details}, ...]"""
+    actions = []
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT timestamp, user_id, username, first_name, action_type, action_details FROM actions ORDER BY timestamp')
+    rows = c.fetchall()
+    for row in rows:
+        actions.append({
+            'timestamp': row[0],
+            'user_id': row[1],
+            'username': row[2],
+            'first_name': row[3],
+            'action_type': row[4],
+            'action_details': row[5]
+        })
+    conn.close()
+    return actions
+
+def save_actions(actions):
+    """Сохранение списка действий (перепишем таблицу целиком)"""
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('DELETE FROM actions')
+    for a in actions:
+        c.execute('''
+            INSERT INTO actions (timestamp, user_id, username, first_name, action_type, action_details)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            a.get('timestamp'),
+            a.get('user_id'),
+            a.get('username'),
+            a.get('first_name'),
+            a.get('action_type'),
+            a.get('action_details')
+        ))
+    conn.commit()
+    conn.close()
+
+def log_action(user_id, username, first_name, action_type, action_details):
+    actions = load_actions()
+    action = {
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'user_id': user_id,
+        'username': username,
+        'first_name': first_name,
+        'action_type': action_type,
+        'action_details': action_details
+    }
+    actions.append(action)
+    save_actions(actions)
+
+# ========== УВЕДОМЛЕНИЯАДМИН ==========
+def notify_admin(title, user_name, user_id, username, details):
+    # Этот бин отправляет уведомление всем администраторам, добавьте ADMIN_IDS
+    for admin_id in ADMIN_IDS:
+        try:
+            notification = f"""
+🔔 {title}
+
+👤 Пользователь: {user_name}
+🆔 ID: {user_id}
+📱 Username: @{username if username else 'не указан'}
+
+{details}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 Просмотр: /user {user_id}
+💬 Ответить: /send {user_id} текст
+"""
+            admin_bot.send_message(admin_id, notification)
+        except Exception as e:
+            print(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+
+# Новая универсальная функция уведомлений о любом действии пользователя (для всех админов)
+def notify_admin_action(user_id, username, first_name, action_type, details):
+    for admin_id in ADMIN_IDS:
+        try:
+            notification = f"""
+🔔 ДЕЙСТВИЕ ПОЛЬЗОВАТЕЛЯ
+
+👤 Пользователь: {first_name}
+🆔 ID: {user_id}
+📱 Username: @{username if username else 'не указан'}
+
+Тип: {action_type}
+Детали:
+{details}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+            admin_bot.send_message(admin_id, notification)
+        except Exception as e:
+            print(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+
+# Обновление старого notify_admin так же отправлять всем
+def notify_admin(title, user_name, user_id, username, details):
+    for admin_id in ADMIN_IDS:
+        try:
+            notification = f"""
+🔔 {title}
+
+👤 Пользователь: {user_name}
+🆔 ID: {user_id}
+📱 Username: @{username if username else 'не указан'}
+
+{details}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 Просмотр: /user {user_id}
+💬 Ответить: /send {user_id} текст
+"""
+            admin_bot.send_message(admin_id, notification)
+        except Exception as e:
+            print(f"Ошибка отправки уведомления админу {admin_id}: {e}")
+
+# ADMIN IDs (несколько)
+ADMIN_IDS = [821500372]  # добавьте другие ID админов сюда
+
+# ========== Основной код (как у вашего примера) ==========
+
+# Инициализация БД
+init_db()
+
+# Файлы данных теперь не используются в виде JSON
+# Но оставим переменные для совместимости
 DATA_FILE = 'users_data.json'
 ACTIONS_FILE = 'user_actions.json'
 
-# ========== ФУНКЦИИ ДЛЯ РАБОТЫ С ДАННЫМИ ==========
-
-def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return {}
-
-def load_actions():
-    if os.path.exists(ACTIONS_FILE):
-        with open(ACTIONS_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return []
-
-# ========== КОМАНДЫ АДМИН-БОТА ==========
-
+# ===== КОМАНДЫ АДМИН-БОТА =====
 @admin_bot.message_handler(commands=['start'])
 def admin_start(message):
     text = """
@@ -59,47 +250,12 @@ def admin_help(message):
     text = """
 📖 Подробная помощь
 
-════════════════════════════════════
-📋 ПРОСМОТР ИНФОРМАЦИИ:
+... длинный текст справки ...
 
-/users - список всех пользователей
-Показывает всех пользователей с контактами
-
-/user USER_ID - детали о пользователе
-Показывает полную информацию и историю действий
-Пример: /user 123456789
-
-/find Иван - поиск пользователя
-Ищет по имени или username
-Пример: /find Петров
-
-/stats - общая статистика
-Количество пользователей, действий и т.д.
-
-/actions - последние действия
-Показывает последние 10 действий всех пользователей
-
-════════════════════════════════════
-💬 ОТПРАВКА СООБЩЕНИЙ:
-
-/send USER_ID текст - отправить одному
-Пример: /send 123456789 Здравствуйте! Ваша заявка принята
-
-/broadcast текст - рассылка всем
-Пример: /broadcast Уважаемые клиенты! Завтра выходной
-
-════════════════════════════════════
-💡 СОВЕТЫ:
-
-1. Используйте /users чтобы узнать ID пользователя
-2. Кликайте на /user команды в списке пользователей
-3. Используйте /find для быстрого поиска
-4. Перед рассылкой проверьте текст - придёт подтверждение
 """
     admin_bot.send_message(message.chat.id, text)
 
 # ===== ПРОСМОТР ПОЛЬЗОВАТЕЛЕЙ =====
-
 @admin_bot.message_handler(commands=['users'])
 def show_users(message):
     data = load_data()
@@ -132,7 +288,6 @@ def show_users(message):
         admin_bot.send_message(message.chat.id, text)
 
 # ===== СТАТИСТИКА =====
-
 @admin_bot.message_handler(commands=['stats'])
 def show_stats(message):
     data = load_data()
@@ -185,7 +340,6 @@ def show_stats(message):
     admin_bot.send_message(message.chat.id, text)
 
 # ===== ПОСЛЕДНИЕ ДЕЙСТВИЯ =====
-
 @admin_bot.message_handler(commands=['actions'])
 def show_actions(message):
     actions = load_actions()
@@ -217,7 +371,6 @@ def show_actions(message):
     admin_bot.send_message(message.chat.id, text)
 
 # ===== ПРОСМОТР КОНКРЕТНОГО ПОЛЬЗОВАТЕЛЯ =====
-
 @admin_bot.message_handler(commands=['user'])
 def show_user_info(message):
     try:
@@ -343,13 +496,10 @@ def show_user_info(message):
         admin_bot.send_message(message.chat.id, f"❌ Ошибка: {str(e)}")
 
 # ===== ПОИСК ПОЛЬЗОВАТЕЛЯ =====
-
 @admin_bot.message_handler(commands=['find'])
 def find_user(message):
     try:
-        # Парсим: /find имя
         parts = message.text.split(' ', 1)
-        
         if len(parts) < 2:
             admin_bot.send_message(message.chat.id,
                 "❌ Неверный формат!\n\n"
@@ -364,12 +514,10 @@ def find_user(message):
         search_query = parts[1].lower()
         data = load_data()
         
-        # Ищем совпадения
         found = []
         for user_id, user_data in data.items():
             name = user_data.get('name', '').lower()
             username = user_data.get('username', '').lower()
-            
             if search_query in name or search_query in username:
                 found.append((user_id, user_data))
         
@@ -398,18 +546,14 @@ def find_user(message):
             text += "━━━━━━━━━━━━━━━━\n\n"
         
         admin_bot.send_message(message.chat.id, text)
-        
     except Exception as e:
         admin_bot.send_message(message.chat.id, f"❌ Ошибка: {str(e)}")
 
 # ===== ОТПРАВКА СООБЩЕНИЯ ПОЛЬЗОВАТЕЛЮ =====
-
 @admin_bot.message_handler(commands=['send'])
 def send_to_user(message):
     try:
-        # Парсим: /send USER_ID текст сообщения
         parts = message.text.split(' ', 2)
-        
         if len(parts) < 3:
             admin_bot.send_message(message.chat.id, 
                 "❌ Неверный формат!\n\n"
@@ -422,7 +566,6 @@ def send_to_user(message):
         user_id = parts[1]
         text = parts[2]
         
-        # Отправляем через основного бота
         main_bot.send_message(user_id, text)
         
         admin_bot.send_message(message.chat.id, 
@@ -438,13 +581,10 @@ def send_to_user(message):
             f"• Пользователь не запускал бота")
 
 # ===== РАССЫЛКА ВСЕМ =====
-
 @admin_bot.message_handler(commands=['broadcast'])
 def broadcast_message(message):
     try:
-        # Парсим: /broadcast текст сообщения
         parts = message.text.split(' ', 1)
-        
         if len(parts) < 2:
             admin_bot.send_message(message.chat.id,
                 "❌ Неверный формат!\n\n"
@@ -456,28 +596,22 @@ def broadcast_message(message):
         
         text = parts[1]
         data = load_data()
-        
         if not data:
             admin_bot.send_message(message.chat.id, "📭 Нет пользователей для рассылки")
             return
         
-        # Подтверждение
-        confirm_text = f"📢 РАССЫЛКА\n\n"
-        confirm_text += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        confirm_text += f"Текст сообщения:\n{text}\n\n"
-        confirm_text += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        confirm_text += f"Получателей: {len(data)}\n\n"
-        confirm_text += f"⚠️ ВНИМАНИЕ!\n"
-        confirm_text += f"Сообщение будет отправлено ВСЕМ пользователям!\n\n"
-        confirm_text += f"Для подтверждения напишите: да\n"
-        confirm_text += f"Для отмены напишите: нет"
-        
+        confirm_text = f"📢 РАССЫЛКА\n\n" \
+                       f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" \
+                       f"Текст сообщения:\n{text}\n\n" \
+                       f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" \
+                       f"Получателей: {len(data)}\n\n" \
+                       f"⚠️ ВНИМАНИЕ!\n" \
+                       f"Сообщение будет отправлено ВСЕМ пользователям!\n\n" \
+                       f"Для подтверждения напишите: да\n" \
+                       f"Для отмены напишите: нет"
         admin_bot.send_message(message.chat.id, confirm_text)
-        
-        # Сохраняем данные для подтверждения
         admin_bot.register_next_step_handler(message, 
             lambda m: confirm_broadcast(m, text, data))
-        
     except Exception as e:
         admin_bot.send_message(message.chat.id, f"❌ Ошибка: {str(e)}")
 
@@ -509,7 +643,7 @@ def confirm_broadcast(message, text, data):
     
     if failed > 0:
         result += f"⚠️ Не удалось отправить пользователям:\n"
-        for uid in failed_users[:5]:  # Показываем первые 5
+        for uid in failed_users[:5]:
             result += f"• {uid}\n"
         if len(failed_users) > 5:
             result += f"• ... и ещё {len(failed_users) - 5}\n"
@@ -517,7 +651,6 @@ def confirm_broadcast(message, text, data):
     admin_bot.send_message(message.chat.id, result)
 
 # ===== ЗАПУСК АДМИН-БОТА =====
-
 if __name__ == '__main__':
     print("🎛 Админ-бот запущен...")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
