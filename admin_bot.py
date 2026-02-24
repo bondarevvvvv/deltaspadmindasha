@@ -10,7 +10,7 @@ ADMIN_BOT_TOKEN = '8212103646:AAHbIr_A-OAfkMBCTwMcxdfHErC21JhOzeM'
 MAIN_BOT_TOKEN = '8510845153:AAGUO5jg01h2NlL46VsD1f-7osYIBVTkxTQ'
 
 # ← Вставьте ID вашей Google Таблицы (из ссылки: docs.google.com/spreadsheets/d/ВОТ_ЭТО/edit)
-SPREADSHEET_ID = '1dbxxavbrWJ6d_vXFUNs-Zhq2EJ6DOnQcG75NcN8S6Os'
+SPREADSHEET_ID = '12jDOiE_qD8JySOVgCdpvbPtO-O5RXUmxjSz-C9fS728'
 
 # ← Путь к файлу credentials.json (должен лежать рядом с этим скриптом)
 CREDENTIALS_FILE = 'credentials.json'
@@ -645,4 +645,5 @@ if __name__ == '__main__':
     print("  /broadcast текст - рассылка")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     admin_bot.infinity_polling()
+
 
