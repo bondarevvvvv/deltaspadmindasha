@@ -1,3 +1,4 @@
+import json
 import telebot
 from telebot import types
 import os
@@ -27,9 +28,15 @@ SCOPES = [
 
 def get_sheets_client():
     """Создаёт и возвращает авторизованный клиент Google Sheets"""
-    creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
-    client = gspread.authorize(creds)
-    return client
+    creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
+    
+    if creds_json:
+        creds_info = json.loads(creds_json)
+        creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+    else:
+        creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
+    
+    return gspread.authorize(creds)
 
 def get_spreadsheet():
     """Открывает таблицу по ID"""
@@ -645,5 +652,6 @@ if __name__ == '__main__':
     print("  /broadcast текст - рассылка")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     admin_bot.infinity_polling()
+
 
 
