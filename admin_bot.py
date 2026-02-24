@@ -27,13 +27,10 @@ SCOPES = [
 ]
 
 def get_sheets_client():
-    creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON', '')
-    
-    # Заменяем \\n на настоящие переносы строк ВО ВСЕЙ СТРОКЕ до парсинга
-    creds_json = creds_json.replace('\\n', '\n')
-    
-    creds_info = json.loads(creds_json, strict=False)
-    
+    import base64
+    creds_b64 = os.environ.get('GOOGLE_CREDENTIALS_JSON', '')
+    creds_json = base64.b64decode(creds_b64).decode('utf-8')
+    creds_info = json.loads(creds_json)
     creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
     return gspread.authorize(creds)
 
@@ -652,6 +649,7 @@ if __name__ == '__main__':
     print("  /broadcast текст - рассылка")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     admin_bot.infinity_polling()
+
 
 
 
