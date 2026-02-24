@@ -27,16 +27,20 @@ SCOPES = [
 ]
 
 def get_sheets_client():
-    """Создаёт и возвращает авторизованный клиент Google Sheets"""
     creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
     
     if creds_json:
+        # Показываем первые 50 символов чтобы понять что пришло
+        print(f"DEBUG первые символы: {repr(creds_json[:50])}")
         creds_info = json.loads(creds_json)
+        creds_info['private_key'] = creds_info['private_key'].replace('\\n', '\n')
         creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
     else:
+        print("DEBUG: переменная GOOGLE_CREDENTIALS_JSON не найдена!")
         creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
     
     return gspread.authorize(creds)
+
 
 def get_spreadsheet():
     """Открывает таблицу по ID"""
@@ -652,6 +656,7 @@ if __name__ == '__main__':
     print("  /broadcast текст - рассылка")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     admin_bot.infinity_polling()
+
 
 
 
