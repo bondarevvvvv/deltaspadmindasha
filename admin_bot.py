@@ -14,7 +14,7 @@ MAIN_BOT_TOKEN = '8510845153:AAGUO5jg01h2NlL46VsD1f-7osYIBVTkxTQ'
 SPREADSHEET_ID = '12jDOiE_qD8JySOVgCdpvbPtO-O5RXUmxjSz-C9fS728'
 
 # ← Путь к файлу credentials.json (должен лежать рядом с этим скриптом)
-CREDENTIALS_FILE = 'credentials.json'
+
 
 admin_bot = telebot.TeleBot(ADMIN_BOT_TOKEN)
 main_bot = telebot.TeleBot(MAIN_BOT_TOKEN)
@@ -27,17 +27,17 @@ SCOPES = [
 ]
 
 def get_sheets_client():
-    creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
+    creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON', '')
     
-    if creds_json:
-        creds_info = json.loads(creds_json)
-        # Фикс: восстанавливаем переносы строк в приватном ключе
-        if 'private_key' in creds_info:
-            creds_info['private_key'] = creds_info['private_key'].replace('\\n', '\n')
-        creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
-    else:
-        creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPES)
+    # Убираем буквальные \n которые ломают JSON
+    creds_json = creds_json.replace('\\n', '\n')
     
+    creds_info = json.loads(creds_json)
+    
+    # Фикс приватного ключа
+    creds_info['private_key'] = creds_info['private_key'].replace('\\n', '\n')
+    
+    creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
     return gspread.authorize(creds)
 
 
@@ -655,6 +655,7 @@ if __name__ == '__main__':
     print("  /broadcast текст - рассылка")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     admin_bot.infinity_polling()
+
 
 
 
