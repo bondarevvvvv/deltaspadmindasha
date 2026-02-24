@@ -29,10 +29,8 @@ SCOPES = [
 def get_sheets_client():
     creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON', '')
     
-    # Убираем буквальные \n которые ломают JSON
-    creds_json = creds_json.replace('\\n', '\n')
-    
-    creds_info = json.loads(creds_json)
+    # Парсим с отключённой строгой проверкой управляющих символов
+    creds_info = json.loads(creds_json, strict=False)
     
     # Фикс приватного ключа
     creds_info['private_key'] = creds_info['private_key'].replace('\\n', '\n')
@@ -655,6 +653,7 @@ if __name__ == '__main__':
     print("  /broadcast текст - рассылка")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     admin_bot.infinity_polling()
+
 
 
 
